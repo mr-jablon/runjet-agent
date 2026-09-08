@@ -3,8 +3,10 @@ package runner
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -309,5 +311,30 @@ func TestCancellationHasNoExitCode(t *testing.T) {
 	}
 	if o.ExitCode != nil {
 		t.Errorf("ExitCode = %d, want none for a cancelled run", *o.ExitCode)
+	}
+}
+
+// A command that never starts has no exit status, and recording one would put
+// "never ran" on the same axis as "ran and succeeded". The caller has to be able
+// to tell them apart.
+func TestACommandThatNeverStartsHasNoExitCode(t *testing.T) {
+	// A working directory that is not there fails the exec itself, so no process
+	// is ever created.
+	o := Run(context.Background(), Spec{
+		Command: "echo hello",
+		Dir:     filepath.Join(t.TempDir(), "not-created"),
+	}, io.Discard)
+
+	if o.OK() {
+		t.Fatal("a command that could not start was reported as a success")
+	}
+	if o.ExitCode != nil {
+		t.Errorf("ExitCode = %d for a command that never ran, want nil", *o.ExitCode)
+	}
+	if o.Err == nil {
+		t.Error("Err is nil, so the log says nothing about why nothing ran")
+	}
+	if o.Reason != ReasonExit {
+		t.Errorf("Reason = %q, want %q", o.Reason, ReasonExit)
 	}
 }

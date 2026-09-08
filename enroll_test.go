@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -254,4 +255,160 @@ func mustPrivateKey(t *testing.T) []byte {
 		t.Fatalf("generate key: %v", err)
 	}
 	return priv
+}
+
+// enroll is run once, by hand, by somebody standing at a terminal. Every way it
+// can go wrong has to end in a sentence they can act on rather than a stack
+// trace or, worse, a half-enrolled host.
+
+func TestEnrollRejectsFlagsItDoesNotKnow(t *testing.T) {
+	var out bytes.Buffer
+	if err := runEnroll([]string{"-nonsense"}, &out); err == nil {
+		t.Fatal("an unknown flag was accepted")
+	}
+}
+
+func TestEnrollRefusesTwoWaysToGiveTheToken(t *testing.T) {
+	var out bytes.Buffer
+	err := runEnroll([]string{
+		"-url", "https://runjet.dev", "-key", testKeyRing(t),
+		"-token", "inline", "-token-file", "/tmp/whatever",
+	}, &out)
+	if err == nil {
+		t.Fatal("both -token and -token-file were accepted, so which one was spent is anybody's guess")
+	}
+	if !strings.Contains(err.Error(), "not both") {
+		t.Errorf("error = %v, want it to say only one may be given", err)
+	}
+}
+
+func TestEnrollReadsTheTokenFromAFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(path, []byte("  one-time-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readToken("", path)
+	if err != nil {
+		t.Fatalf("readToken: %v", err)
+	}
+	if got != "one-time-token" {
+		t.Errorf("token = %q, want it trimmed", got)
+	}
+
+	if _, err := readToken("", filepath.Join(t.TempDir(), "absent")); err == nil {
+		t.Error("a token file that is not there was accepted")
+	} else if !strings.Contains(err.Error(), "read token file") {
+		t.Errorf("error = %v, want it to name the file", err)
+	}
+}
+
+// Stdin is the default so a token need never appear in the process list or in
+// shell history.
+func TestEnrollReadsTheTokenFromStdin(t *testing.T) {
+	withStdin(t, "  fed-on-stdin\n")
+	got, err := readToken("", "")
+	if err != nil {
+		t.Fatalf("readToken: %v", err)
+	}
+	if got != "fed-on-stdin" {
+		t.Errorf("token = %q, want it read from stdin and trimmed", got)
+	}
+
+	withStdin(t, "   \n")
+	if _, err := readToken("", ""); err == nil {
+		t.Error("empty stdin was accepted as a token")
+	} else if !strings.Contains(err.Error(), "no enrollment token") {
+		t.Errorf("error = %v, want it to say how to supply one", err)
+	}
+}
+
+// withStdin replaces os.Stdin for the length of one test.
+func withStdin(t *testing.T, content string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "stdin")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdin
+	os.Stdin = f
+	t.Cleanup(func() { os.Stdin = old; _ = f.Close() })
+}
+
+// The token is spent before the key is written. If writing fails, the operator
+// has to hear about it — the token is burned either way, and a silent failure
+// would leave them restarting an agent that can never authenticate.
+func TestEnrollSurfacesAnIdentityItCouldNotWrite(t *testing.T) {
+	blocked := filepath.Join(t.TempDir(), "state")
+	if err := os.WriteFile(blocked, []byte("a file, not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := runEnroll([]string{
+		"-url", "http://127.0.0.1:1", "-key", testKeyRing(t),
+		"-token", "one-time", "-state-dir", blocked,
+	}, &out)
+	if err == nil {
+		t.Fatal("enrolling into an unusable state directory reported success")
+	}
+}
+
+func TestEnrollSurfacesAnUnreachableScheduler(t *testing.T) {
+	var out bytes.Buffer
+	err := runEnroll([]string{
+		"-url", "http://127.0.0.1:1", "-key", testKeyRing(t),
+		"-token", "one-time", "-state-dir", t.TempDir(),
+		"-env-file", filepath.Join(t.TempDir(), "agent.env"),
+	}, &out)
+	if err == nil {
+		t.Fatal("enrolling against a closed port reported success")
+	}
+}
+
+// writeEnvFile decides whether a host's settings are safe to write. Both ways
+// it can fail leave the operator with an enrolled agent and no configuration,
+// so both have to say which path was the problem.
+func TestWriteEnvFileReportsWhereItCouldNotWrite(t *testing.T) {
+	t.Run("a path that cannot be examined", func(t *testing.T) {
+		file := filepath.Join(t.TempDir(), "afile")
+		if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writeEnvFile(filepath.Join(file, "agent.env"), "u", "k", "n"); err == nil {
+			t.Fatal("a path through a regular file was accepted")
+		}
+	})
+
+	t.Run("a directory that cannot be created", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root creates directories anywhere, so the failure cannot be staged")
+		}
+		dir := filepath.Join(t.TempDir(), "etc")
+		if err := os.Mkdir(dir, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+		if _, err := writeEnvFile(filepath.Join(dir, "sub", "agent.env"), "u", "k", "n"); err == nil {
+			t.Fatal("writing into a directory that cannot be created reported success")
+		}
+	})
+
+	t.Run("a file that cannot be written", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root writes into a read-only directory, so the failure cannot be staged")
+		}
+		dir := filepath.Join(t.TempDir(), "etc")
+		if err := os.Mkdir(dir, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+		if _, err := writeEnvFile(filepath.Join(dir, "agent.env"), "u", "k", "n"); err == nil {
+			t.Fatal("writing into a read-only directory reported success")
+		}
+	})
 }

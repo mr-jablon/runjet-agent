@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -177,3 +178,19 @@ func TestSecretValuesTakesOnlyTheValues(t *testing.T) {
 		t.Errorf("secretValues = %q, want the values after the first '='", got)
 	}
 }
+
+// The redactor sits between a command and the network. A write that fails on
+// the way out has to come back as a failure rather than be swallowed, or the
+// caller believes output shipped that never did.
+func TestRedactorReportsAFailedWriteDownstream(t *testing.T) {
+	failing := writerFunc(func(p []byte) (int, error) { return 0, errors.New("pipe is gone") })
+	r := newRedactor([]string{"s3cr3t-value"}, failing)
+
+	if _, err := r.Write([]byte("ordinary output that contains nothing secret\n")); err == nil {
+		t.Fatal("a failed downstream write was reported as success")
+	}
+}
+
+type writerFunc func(p []byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }

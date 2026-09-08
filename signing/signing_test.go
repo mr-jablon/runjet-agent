@@ -345,3 +345,112 @@ func TestParsePublicKeyRejectsWrongLength(t *testing.T) {
 		t.Fatalf("ParsePublicKey(short) = %v, want a length error", err)
 	}
 }
+
+// Callers must map every error here to one indistinguishable rejection, but the
+// sentinels have to be right for the logs to be worth reading — and Open must
+// refuse before it parses, so a well-signed payload that is nonsense and a
+// forged one that is well-formed both stop at the same place.
+
+// Verification comes first; only then is the payload decoded. A signed payload
+// that will not fit the caller's type is a different failure from a forgery,
+// and saying so is what keeps a protocol mistake from reading as an attack.
+func TestOpenSeparatesAForgeryFromAPayloadThatWillNotFit(t *testing.T) {
+	signer, ring := testSignerAndRing(t)
+
+	env, err := signer.Seal(map[string]string{"runId": "run-1"})
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+
+	var wrong struct {
+		RunID int `json:"runId"` // the payload says string
+	}
+	err = ring.Open(env, &wrong)
+	if err == nil {
+		t.Fatal("a payload that does not fit the target was accepted")
+	}
+	if errors.Is(err, ErrBadSignature) {
+		t.Error("a decoding failure was reported as a bad signature, which reads as an attack")
+	}
+	if !strings.Contains(err.Error(), "decode payload") {
+		t.Errorf("error = %v, want it to say the payload could not be decoded", err)
+	}
+}
+
+// Verifying without decoding is how a caller checks authenticity when it has no
+// use for the contents.
+func TestOpenVerifiesWithoutDecodingWhenAskedTo(t *testing.T) {
+	signer, ring := testSignerAndRing(t)
+	env, err := signer.Seal(map[string]string{"runId": "run-1"})
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+
+	if err := ring.Open(env, nil); err != nil {
+		t.Errorf("Open with no target = %v, want nil", err)
+	}
+
+	env.Signature = "AAAA"
+	if err := ring.Open(env, nil); err == nil {
+		t.Error("a forged envelope passed verification when no target was given")
+	}
+}
+
+// Seal signs the exact bytes it produces. A payload that cannot be marshalled
+// must fail here rather than travel as an envelope around nothing.
+func TestSealRefusesAPayloadItCannotMarshal(t *testing.T) {
+	signer, _ := testSignerAndRing(t)
+
+	if _, err := signer.Seal(make(chan int)); err == nil {
+		t.Fatal("Seal accepted a payload that cannot be marshalled")
+	}
+}
+
+// A signature that is not base64 is malformed, not forged, and the two are
+// worth telling apart in a log.
+func TestVerifyRequestSeparatesMalformedFromForged(t *testing.T) {
+	signer, _ := testSignerAndRing(t)
+	q := Request{Method: "GET", Path: "/agent/work", Timestamp: 1, Nonce: "n"}
+
+	err := VerifyRequest(signer.Public(), "not base64 at all!!", q)
+	if !errors.Is(err, ErrMalformed) {
+		t.Errorf("VerifyRequest with an unparseable signature = %v, want ErrMalformed", err)
+	}
+}
+
+// A private key of the wrong length cannot sign, and configuration is where
+// that must be caught.
+func TestParsePrivateKeyRejectsWhatCannotSign(t *testing.T) {
+	if _, err := ParsePrivateKey("not base64 at all!!"); err == nil {
+		t.Error("ParsePrivateKey accepted something that is not base64")
+	}
+	if _, err := ParsePrivateKey(EncodeKey([]byte("too short"))); err == nil {
+		t.Error("ParsePrivateKey accepted a key of the wrong size")
+	}
+
+	_, priv, err := GenerateKey()
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	round, err := ParsePrivateKey(EncodeKey(priv))
+	if err != nil {
+		t.Fatalf("ParsePrivateKey: %v", err)
+	}
+	if !round.Equal(priv) {
+		t.Error("a key did not survive the round trip through configuration")
+	}
+}
+
+// testSignerAndRing is one scheduler and the ring an agent would trust it by.
+func testSignerAndRing(t *testing.T) (*Signer, KeyRing) {
+	t.Helper()
+	pub, priv, err := GenerateKey()
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	signer, err := NewSigner("sched-1", priv)
+	if err != nil {
+		t.Fatalf("NewSigner: %v", err)
+	}
+	return signer, KeyRing{"sched-1": pub}
+}

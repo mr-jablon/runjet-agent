@@ -264,3 +264,130 @@ func contains(env []string, entry string) bool {
 	}
 	return false
 }
+
+// verify is the startup probe. Without it the first sign of a unit file missing
+// AmbientCapabilities is every job on the host failing at exec — a slow and
+// confusing way to learn that the agent never had the privilege it was
+// configured to use.
+
+// Nothing to prove when jobs run as the agent: there is no uid to change to.
+func TestVerifyPassesWhenJobsRunAsTheAgent(t *testing.T) {
+	if err := (jobUser{}).verify(context.Background()); err != nil {
+		t.Errorf("verify() = %v for an agent that was never asked to isolate, want nil", err)
+	}
+}
+
+// Configured to isolate but unable to: the agent must refuse to start, and say
+// what a unit file is missing rather than leaving the operator to guess.
+func TestVerifyRefusesAHostThatCannotChangeUser(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can become anybody, so the failure cannot be staged")
+	}
+	who := jobUser{Cred: &runner.User{UID: 65534, GID: 65534}, Name: "nobody"}
+
+	err := who.verify(context.Background())
+	if err == nil {
+		t.Fatal("verify() = nil without the privilege to change uid: the agent would take work " +
+			"and fail every job of it at exec")
+	}
+	for _, want := range []string{"nobody", "CAP_SETUID", "AGENT_JOB_USER"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("verify error does not mention %q, so it does not say how to fix it:\n%v", want, err)
+		}
+	}
+}
+
+// With the privilege, the probe has to pass — otherwise a correctly configured
+// host would refuse to start.
+func TestVerifyPassesWhereTheAgentReallyCanChangeUser(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("not privileged: switching user needs root or CAP_SETUID")
+	}
+	other, err := user.Lookup("nobody")
+	if err != nil {
+		t.Skipf("no nobody account to run jobs as: %v", err)
+	}
+	who, err := fromPasswd(other)
+	if err != nil {
+		t.Fatalf("fromPasswd: %v", err)
+	}
+	if err := who.verify(context.Background()); err != nil {
+		t.Errorf("verify() = %v as root, want nil: a correctly configured host would refuse to start", err)
+	}
+}
+
+// An account whose ids are not numbers cannot become a credential. It is the
+// shape every Windows account has, and the shape a directory service can return,
+// so the failure has to name the account rather than panic on it.
+func TestFromPasswdRejectsIdsThatAreNotNumbers(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		u    user.User
+		want string
+	}{
+		{
+			name: "uid",
+			u:    user.User{Username: "svc", Uid: "S-1-5-21-1004336348", Gid: "10"},
+			want: "non-numeric uid",
+		},
+		{
+			name: "gid",
+			u:    user.User{Username: "svc", Uid: "10", Gid: "domain-users"},
+			want: "non-numeric gid",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := fromPasswd(&tc.u)
+			if err == nil {
+				t.Fatal("fromPasswd accepted an account it cannot build a credential from")
+			}
+			if !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "svc") {
+				t.Errorf("error = %v, want it to name the account and say %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// A home directory that is not there leaves WorkDir empty rather than pointing
+// the exec at a path that does not exist — which would fail every run on the
+// host instead of just being inconvenient.
+func TestFromPasswdLeavesTheWorkingDirectoryAloneWithoutAUsableHome(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skipf("no current user: %v", err)
+	}
+	absent := *me
+	absent.HomeDir = filepath.Join(t.TempDir(), "not-created")
+
+	who, err := fromPasswd(&absent)
+	if err != nil {
+		t.Fatalf("fromPasswd: %v", err)
+	}
+	if who.WorkDir != "" {
+		t.Errorf("WorkDir = %q for a home that does not exist, want empty so the exec keeps "+
+			"the agent's directory", who.WorkDir)
+	}
+	if who.Home != absent.HomeDir {
+		t.Errorf("Home = %q, want the account's own %q reported even though it is unusable",
+			who.Home, absent.HomeDir)
+	}
+}
+
+// No home at all in the passwd entry is not the same as a missing directory:
+// there is nothing to report, so "/" stands in.
+func TestFromPasswdFallsBackToRootWhenThereIsNoHomeAtAll(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skipf("no current user: %v", err)
+	}
+	homeless := *me
+	homeless.HomeDir = ""
+
+	who, err := fromPasswd(&homeless)
+	if err != nil {
+		t.Fatalf("fromPasswd: %v", err)
+	}
+	if who.Home != "/" {
+		t.Errorf("Home = %q for an entry with no home, want \"/\"", who.Home)
+	}
+}

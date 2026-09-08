@@ -307,3 +307,46 @@ func TestResolveWithNoNames(t *testing.T) {
 		t.Errorf("resolve(nil) = %v, want no entries", env)
 	}
 }
+
+// A secrets path that cannot be examined is not the same as one that is not
+// configured. Starting anyway would run every job that names a secret as a
+// failure nobody can explain.
+func TestLoadSecretsFailsOnAPathItCannotStat(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "secrets")
+	if err := os.WriteFile(file, []byte("TOKEN=x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A path *through* a regular file: not "no such file", a broken host.
+	through := filepath.Join(file, "more")
+
+	if _, err := loadSecrets(through, discardLogger()); err == nil {
+		t.Fatal("a path that cannot be examined was accepted")
+	}
+}
+
+// A secrets file that cannot be read to the end must stop the agent rather than
+// leave it holding half the secrets on the host.
+func TestLoadSecretsFailsWhenTheFileCannotBeRead(t *testing.T) {
+	dir := t.TempDir()
+	// A directory passes the stat, opens, and then fails on the first read.
+	if _, err := loadSecrets(dir, discardLogger()); err == nil {
+		t.Fatal("a directory was parsed as a secrets file")
+	}
+}
+
+func TestLoadSecretsFailsOnAFileItCannotOpen(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root opens anything, so the failure cannot be staged")
+	}
+	path := filepath.Join(t.TempDir(), "secrets")
+	if err := os.WriteFile(path, []byte("TOKEN=x\n"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+
+	if _, err := loadSecrets(path, discardLogger()); err == nil {
+		t.Fatal("an unreadable secrets file was accepted")
+	} else if !strings.Contains(err.Error(), "open secrets file") {
+		t.Errorf("error = %v, want it to say the file could not be opened", err)
+	}
+}

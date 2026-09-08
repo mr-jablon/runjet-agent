@@ -458,3 +458,301 @@ func writeJSONBody(t *testing.T, w http.ResponseWriter, v any) {
 		t.Fatalf("encode response: %v", err)
 	}
 }
+
+// Everything below is a way the agent can be lied to or cut off mid-sentence.
+// None of it should ever be reported as work.
+
+// A cancellation is verified exactly as strictly as a dispatch. Being asked to
+// *stop* looks harmless next to being asked to start, which is why it is worth
+// proving that it is not: an unverified stop is a way to silence somebody's
+// scheduled work from outside.
+func TestPollRefusesCancellationsItCannotBelieve(t *testing.T) {
+	impostor := newTestRunjet(t)
+
+	for _, tc := range []struct {
+		name string
+		seal func(t *testing.T, ts *testRunjet) signing.Envelope
+		want string
+	}{
+		{
+			name: "signed by somebody else",
+			seal: func(t *testing.T, _ *testRunjet) signing.Envelope {
+				env, err := impostor.signer.Seal(protocol.Cancel{
+					RunID: "run-1", Reason: "stop", Protocol: protocol.AgentProtocolVersion,
+				})
+				if err != nil {
+					t.Fatalf("seal: %v", err)
+				}
+				return env
+			},
+			want: "refusing unverifiable cancellation",
+		},
+		{
+			name: "speaking another protocol version",
+			seal: func(t *testing.T, ts *testRunjet) signing.Envelope {
+				env, err := ts.signer.Seal(protocol.Cancel{
+					RunID: "run-1", Reason: "stop", Protocol: protocol.AgentProtocolVersion + 1,
+				})
+				if err != nil {
+					t.Fatalf("seal: %v", err)
+				}
+				return env
+			},
+			want: "cancellation speaks protocol",
+		},
+		{
+			name: "already expired",
+			seal: func(t *testing.T, ts *testRunjet) signing.Envelope {
+				env, err := ts.signer.Seal(protocol.Cancel{
+					RunID: "run-1", Reason: "stop", Protocol: protocol.AgentProtocolVersion,
+					ExpiresAt: time.Now().Add(-time.Minute),
+				})
+				if err != nil {
+					t.Fatalf("seal: %v", err)
+				}
+				return env
+			},
+			want: "refusing cancellation",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := newTestRunjet(t)
+			c := enrolledClient(t, ts, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewEncoder(w).Encode(workResponse{Cancel: []signing.Envelope{tc.seal(t, ts)}})
+			}))
+
+			_, err := c.poll(context.Background(), time.Second)
+			if err == nil {
+				t.Fatal("the agent accepted a cancellation it could not verify")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want it to mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// Raising a cap is the interesting forgery rather than lowering one: an
+// unverified ceiling would let whoever sits on the wire use this host's own
+// agent to exhaust it.
+func TestPollRefusesLimitsItCannotBelieve(t *testing.T) {
+	impostor := newTestRunjet(t)
+
+	for _, tc := range []struct {
+		name string
+		seal func(t *testing.T, ts *testRunjet) signing.Envelope
+		want string
+	}{
+		{
+			name: "signed by somebody else",
+			seal: func(t *testing.T, _ *testRunjet) signing.Envelope {
+				env, err := impostor.signer.Seal(protocol.Limits{
+					MaxParallel: 500, Protocol: protocol.AgentProtocolVersion,
+				})
+				if err != nil {
+					t.Fatalf("seal: %v", err)
+				}
+				return env
+			},
+			want: "refusing unverifiable limits",
+		},
+		{
+			name: "speaking another protocol version",
+			seal: func(t *testing.T, ts *testRunjet) signing.Envelope {
+				env, err := ts.signer.Seal(protocol.Limits{
+					MaxParallel: 500, Protocol: protocol.AgentProtocolVersion + 1,
+				})
+				if err != nil {
+					t.Fatalf("seal: %v", err)
+				}
+				return env
+			},
+			want: "limits speak protocol",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := newTestRunjet(t)
+			c := enrolledClient(t, ts, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				env := tc.seal(t, ts)
+				_ = json.NewEncoder(w).Encode(workResponse{Limits: &env})
+			}))
+
+			_, err := c.poll(context.Background(), time.Second)
+			if err == nil {
+				t.Fatal("the agent accepted a ceiling it could not verify")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want it to mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// A limit that has expired is not an error, it is simply not applied: the agent
+// keeps whatever its own configuration says, which is what it did before limits
+// existed at all.
+func TestPollIgnoresAnExpiredLimitWithoutFailing(t *testing.T) {
+	ts := newTestRunjet(t)
+	c := enrolledClient(t, ts, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		env, err := ts.signer.Seal(protocol.Limits{
+			MaxParallel: 500, Protocol: protocol.AgentProtocolVersion,
+			ExpiresAt: time.Now().Add(-time.Minute),
+		})
+		if err != nil {
+			t.Errorf("seal: %v", err)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(workResponse{Limits: &env})
+	}))
+
+	w, err := c.poll(context.Background(), time.Second)
+	if err != nil {
+		t.Fatalf("poll: %v", err)
+	}
+	if w.limits != nil {
+		t.Errorf("limits = %+v, want none applied: an expired ceiling is stale, not a reason to stop", w.limits)
+	}
+}
+
+// A scheduler that answers with something other than the work document — a
+// proxy's error page, a truncated body — must not be read as "no work".
+func TestPollRefusesAnAnswerItCannotDecode(t *testing.T) {
+	ts := newTestRunjet(t)
+	c := enrolledClient(t, ts, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("<html>gateway timeout</html>"))
+	}))
+
+	if _, err := c.poll(context.Background(), time.Second); err == nil {
+		t.Fatal("an undecodable answer was taken for an empty one")
+	} else if !strings.Contains(err.Error(), "decode work response") {
+		t.Errorf("error = %v, want it to say the answer could not be decoded", err)
+	}
+}
+
+// Nothing may be signed before there is an identity to sign with, and the
+// failure has to say so rather than sending an unsigned request the scheduler
+// will refuse for an unrelated-looking reason.
+func TestRequestsBeforeEnrollmentAreRefusedLocally(t *testing.T) {
+	c := newClient("http://runjet.invalid", signing.KeyRing{})
+	ctx := context.Background()
+
+	if _, err := c.poll(ctx, time.Second); err == nil || !strings.Contains(err.Error(), "not enrolled") {
+		t.Errorf("poll before enrollment = %v, want a local refusal", err)
+	}
+	if err := c.reportStatus(ctx, "run-1", statusBody{State: "running"}); err == nil ||
+		!strings.Contains(err.Error(), "not enrolled") {
+		t.Errorf("reportStatus before enrollment = %v, want a local refusal", err)
+	}
+	if err := c.heartbeat(ctx, "run-1"); err == nil || !strings.Contains(err.Error(), "not enrolled") {
+		t.Errorf("heartbeat before enrollment = %v, want a local refusal", err)
+	}
+	if _, err := c.sendChunk(ctx, "run-1", 0, "output"); err == nil ||
+		!strings.Contains(err.Error(), "not enrolled") {
+		t.Errorf("sendChunk before enrollment = %v, want a local refusal", err)
+	}
+}
+
+// A key that cannot sign is a misconfiguration, not a request failure, and it
+// has to be caught where it can still be reported.
+func TestAuthenticateRejectsAnIdentityThatCannotSign(t *testing.T) {
+	ts := newTestRunjet(t)
+	_, priv, err := signing.GenerateKey()
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	c := newClient("http://runjet.invalid", ts.ring())
+
+	if err := c.authenticate("", priv); err == nil {
+		t.Error("authenticate accepted an empty agent id, so requests would be signed as nobody")
+	}
+	if err := c.authenticate("agent-1", ed25519.PrivateKey("too short")); err == nil {
+		t.Error("authenticate accepted a key of the wrong size")
+	}
+}
+
+// The account a host runs commands as travels on every request, so the agent
+// list can show it. Reported and never obeyed — but it has to actually be sent,
+// or the risky configuration is invisible.
+func TestSignedRequestCarriesTheJobAccount(t *testing.T) {
+	ts := newTestRunjet(t)
+	var got *http.Request
+	c := enrolledClient(t, ts, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Clone(context.Background())
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	c.jobUser, c.jobIsolated = "runjet-job", true
+
+	if err := c.heartbeat(context.Background(), "run-1"); err != nil {
+		t.Fatalf("heartbeat: %v", err)
+	}
+	if got == nil {
+		t.Fatal("the scheduler saw no request")
+	}
+	if v := got.Header.Get("X-Agent-Job-User"); v != "runjet-job" {
+		t.Errorf("X-Agent-Job-User = %q, want the job account", v)
+	}
+	if v := got.Header.Get("X-Agent-Job-Isolated"); v != "true" {
+		t.Errorf("X-Agent-Job-Isolated = %q, want true", v)
+	}
+	if v := got.Header.Get("X-Agent-Version"); v != version {
+		t.Errorf("X-Agent-Version = %q, want %q", v, version)
+	}
+}
+
+// A scheduler that is not there, or a URL that cannot be turned into a request,
+// must fail as a request failure rather than take the agent down.
+func TestEnrollFailsOnAnUnreachableOrUnusableScheduler(t *testing.T) {
+	ts := newTestRunjet(t)
+	ctx := context.Background()
+
+	if _, _, err := newClient("http://127.0.0.1:1", ts.ring()).enroll(ctx, "token", "v1"); err == nil {
+		t.Error("enrolling against a closed port reported success")
+	}
+	// A control character cannot go in a URL, so the request is never built.
+	if _, _, err := newClient("http://runjet.invalid/\x7f", ts.ring()).enroll(ctx, "token", "v1"); err == nil {
+		t.Error("enrolling against an unusable URL reported success")
+	}
+}
+
+// An answer that is not an envelope at all. The agent must not read a proxy's
+// error page as an enrollment.
+func TestEnrollRefusesAnAnswerThatIsNotAnEnvelope(t *testing.T) {
+	ts := newTestRunjet(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("welcome to nginx"))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, _, err := newClient(srv.URL, ts.ring()).enroll(context.Background(), "token", "v1")
+	if err == nil {
+		t.Fatal("a non-envelope answer was accepted as an enrollment")
+	}
+	if !strings.Contains(err.Error(), "decode enrollment envelope") {
+		t.Errorf("error = %v, want it to say the envelope could not be decoded", err)
+	}
+}
+
+// A body that stops arriving mid-read is a failure, not an empty answer.
+func TestDoFailsWhenTheBodyIsCutShort(t *testing.T) {
+	ts := newTestRunjet(t)
+	c := enrolledClient(t, ts, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "4096")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("half a "))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		// Return without writing the rest: the client is left waiting for a body
+		// that never finishes.
+		if hj, ok := w.(http.Hijacker); ok {
+			conn, _, err := hj.Hijack()
+			if err == nil {
+				_ = conn.Close()
+			}
+		}
+	}))
+
+	if _, err := c.poll(context.Background(), time.Second); err == nil {
+		t.Error("a truncated body was read as a complete answer")
+	}
+}

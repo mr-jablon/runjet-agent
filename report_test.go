@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/mr-jablon/runjet-agent/runner"
+	"github.com/mr-jablon/runjet-agent/signing"
 )
 
 // The streamer sits between a running command and the network, and its one hard
@@ -401,5 +403,71 @@ func TestDescribe(t *testing.T) {
 				t.Errorf("describe = %q, want it to mention %q", got, c.want)
 			}
 		})
+	}
+}
+
+// A conflict answer the agent cannot read is worse than one it can: realigning
+// to a sequence number decoded from nonsense would corrupt the rest of the
+// stream rather than recover it.
+func TestSendChunkRefusesAConflictItCannotDecode(t *testing.T) {
+	ts := newTestRunjet(t)
+	c := enrolledClient(t, ts, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte("expected sequence 4, got 7"))
+	}))
+
+	_, err := c.sendChunk(context.Background(), "run-1", 0, "output")
+	if err == nil {
+		t.Fatal("an undecodable conflict was treated as a successful realignment")
+	}
+	if !strings.Contains(err.Error(), "decode sequence conflict") {
+		t.Errorf("error = %v, want it to say the conflict could not be decoded", err)
+	}
+	if errors.Is(err, errSequenceGap) {
+		t.Error("the failure was reported as a sequence gap, which would realign the stream to a number nobody sent")
+	}
+}
+
+// The scheduler being unreachable mid-run must reach the caller as an error, so
+// the streamer can log it and drop the chunk rather than wedge the command.
+func TestSendChunkSurfacesAnUnreachableScheduler(t *testing.T) {
+	ts := newTestRunjet(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	c := newClient(srv.URL, ts.ring())
+	_, priv, err := signing.GenerateKey()
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	if err := c.authenticate("agent-1", priv); err != nil {
+		t.Fatalf("authenticate: %v", err)
+	}
+	srv.Close() // nobody is listening now
+
+	if _, err := c.sendChunk(context.Background(), "run-1", 0, "output"); err == nil {
+		t.Error("uploading to a scheduler that is gone reported success")
+	}
+}
+
+// The streamer's contract is that it never blocks the command. A scheduler that
+// has stopped answering must not hold a flush open for the length of the run.
+func TestFlushGivesUpOnAStalledUpload(t *testing.T) {
+	rec := &slowChunkRecorder{delay: 2 * time.Second}
+	ts := newTestRunjet(t)
+	s := newOutputStreamer(enrolledClient(t, ts, rec), "run-1", func(error) {})
+
+	if _, err := s.Write([]byte("a line\n")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	// A deadline shorter than the upload takes: flush must return with it.
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	done := make(chan struct{})
+	go func() { s.flush(ctx); close(done) }()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("flush outlived its context: a command writing into a stalled scheduler would hang")
 	}
 }

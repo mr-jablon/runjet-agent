@@ -351,3 +351,62 @@ func mustPublicKey(t *testing.T) []byte {
 	}
 	return pub
 }
+
+// A state directory that cannot be read is not an agent that has never
+// enrolled. Confusing the two would spend a fresh token and abandon a
+// registration the scheduler still holds.
+func TestLoadIdentityDistinguishesUnreadableFromAbsent(t *testing.T) {
+	blocked := filepath.Join(t.TempDir(), "state")
+	if err := os.WriteFile(blocked, []byte("a file, not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config{StateDir: blocked}
+
+	_, _, ok, err := cfg.loadIdentity()
+	if err == nil {
+		t.Fatal("an unreadable state directory was reported as \"never enrolled\"")
+	}
+	if ok {
+		t.Error("ok = true alongside an error")
+	}
+	if !strings.Contains(err.Error(), "read identity") {
+		t.Errorf("error = %v, want it to say the identity could not be read", err)
+	}
+}
+
+// The private key has nowhere to go. Silence here would leave an agent holding
+// a key in memory that cannot survive a restart, on a token already spent.
+func TestSaveIdentityReportsWhereItCouldNotWrite(t *testing.T) {
+	t.Run("the state directory cannot be created", func(t *testing.T) {
+		blocked := filepath.Join(t.TempDir(), "state")
+		if err := os.WriteFile(blocked, []byte("a file, not a directory"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		err := config{StateDir: blocked}.saveIdentity(identity{AgentID: "a"})
+		if err == nil {
+			t.Fatal("saveIdentity reported success with no directory to write into")
+		}
+		if !strings.Contains(err.Error(), "create state dir") {
+			t.Errorf("error = %v, want it to name the directory", err)
+		}
+	})
+
+	t.Run("the file cannot be written", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root writes into a read-only directory, so the failure cannot be staged")
+		}
+		dir := filepath.Join(t.TempDir(), "state")
+		if err := os.Mkdir(dir, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+		err := config{StateDir: dir}.saveIdentity(identity{AgentID: "a"})
+		if err == nil {
+			t.Fatal("saveIdentity reported success although nothing was written")
+		}
+		if !strings.Contains(err.Error(), "write identity") {
+			t.Errorf("error = %v, want it to say the identity could not be written", err)
+		}
+	})
+}
