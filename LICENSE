@@ -1,0 +1,211 @@
+# Runjet Agent License (Source-Available)
+
+Copyright © 2026 Tomáš Jablonický, Company ID (IČO) 87666570,
+a sole proprietor registered in the Czech Trade Licensing Register
+(the **"Provider"**).
+
+These terms (the **"License"**) govern the use of the **Runjet Agent**
+software, including its source code published in this repository and
+the official binary builds distributed by the Provider (together, the
+**"Software"**).
+
+The Software is **not open source** within the meaning of the Open
+Source Initiative definition. The source code is published for the
+purposes of transparency and security auditing, not for free use.
+
+### 1. Definitions
+
+- **"Service"** — the Runjet online service operated by the Provider
+  at the domain runjet.dev, to which the Software connects.
+- **"Official Build"** — a binary form of the Software built and
+  distributed by the Provider (a release in this repository or at
+  runjet.dev).
+- **"User"** — a natural or legal person using the Software.
+
+### 2. What is permitted
+
+The Provider grants the User a non-exclusive, non-transferable,
+royalty-free, and revocable right to:
+
+a) **view and study the source code** of the Software, **build it from
+   that source code, and run its test suite**, for the purpose of
+   assessing its functionality and security (audit);
+
+b) **download, install, and run Official Builds of the Software, or
+   binaries the User has built from the published source code**, on the
+   User's own devices, **solely for the purpose of using the Service**
+   in accordance with its terms;
+
+c) **quote short excerpts of the source code** in reviews, security
+   analyses, and technical articles, with attribution.
+
+### 3. What is prohibited
+
+Without the Provider's prior express written consent, the User must
+not, in particular:
+
+a) **copy, distribute, rent, lend, sublicense, or otherwise make the
+   Software or any part of it available to third parties**, except for
+   forks of the repository within the GitHub platform to the extent
+   required by that platform's terms — such a fork, however, does not
+   create any rights to the Software beyond this License;
+
+b) **modify, adapt, translate the Software, or create derivative
+   works** based on it;
+
+c) **use the Software or any part of it in other projects, products,
+   or services**, whether the User's own or third-party, commercial or
+   non-commercial, or use it **other than in connection with the
+   Service**;
+
+d) **distribute binaries built from the source code, or otherwise make
+   them available to third parties**, or operate such a binary other
+   than in connection with the Service. Building from the published
+   source code for the User's own use is permitted under Article 2(b),
+   and Article 3(b) applies to it: what is built must be the published
+   source code, unmodified;
+
+e) remove or alter authorship notices, license terms, or other notices
+   contained in the Software.
+
+### 4. Intellectual property
+
+All rights to the Software not expressly granted by this License
+remain with the Provider. The User acquires no ownership rights to the
+Software. The name "Runjet", logos, and other marks are marks of the
+Provider, and this License grants no rights to them.
+
+### 5. Third-party components
+
+The Software contains third-party components distributed under their
+own licenses — today a single one, the Go standard library, under the
+three-clause BSD license with an additional patent grant, which a
+static build carries inside the binary rather than beside it. Their
+list and the texts of their licenses are provided in the file
+`THIRD-PARTY-NOTICES.md` in the root of the repository. This License
+does not apply to those components; their use is governed by their own
+licenses.
+
+### 6. Disclaimer of warranties and the User's responsibility for deployment
+
+The Software is provided **"AS IS"**, without warranties of any kind,
+express or implied, including without limitation any warranty of
+functionality, fitness for a particular purpose, uninterrupted or
+error-free operation, security, or compatibility with the User's
+environment. The Provider does not warrant that the Software is free
+of defects or vulnerabilities.
+
+The Software runs the tasks defined by the User under a separate system
+account, which keeps those tasks away from the Software's own private
+key and its secrets file. **This is a boundary, not a sandbox.** It is
+not a warranty that a task cannot affect the host it runs on: a task has
+a shell and every privilege of the account it runs under.
+
+The User installs and operates the Software **solely at the User's own
+responsibility and risk** and is in particular obliged to:
+
+a) perform installation and configuration in accordance with the
+   documentation;
+
+b) run the Software under an account with the least privileges
+   necessary for the tasks performed, and secure the environment in
+   which the Software runs (server, network, access controls,
+   backups);
+
+c) install updates of the Software published by the Provider without
+   undue delay;
+
+d) bear sole responsibility for the content, lawfulness, and
+   consequences of the **commands and scripts that the User schedules
+   and executes through the Software** — the Software merely executes
+   them.
+
+The Provider is not liable for any harm arising from a breach of the
+obligations under this Article, from incorrect installation or
+configuration, from operating the Software in an unsecured
+environment, from failure to install available updates, from the
+content and effects of tasks defined by the User, or from
+**unauthorized interference by a third party** (attack, exploitation
+of a vulnerability, compromise of the User's environment).
+
+### 7. Limitation of liability
+
+To the extent permitted by the mandatory provisions of the governing
+law, the Provider shall not be liable for any damage arising in
+connection with the installation, operation, or inability to operate
+the Software, including without limitation loss of profit, loss of
+data, business interruption, or consequential damages, regardless of
+the legal basis. This is without prejudice to rights that cannot be
+excluded or limited under the governing law (in particular liability
+for harm caused intentionally or through gross negligence, and
+consumers' rights under mandatory provisions).
+
+In relations with a User who is not a consumer, the Provider's
+aggregate obligation to compensate any and all harm arising in
+connection with the Software and the Service is limited to an amount
+equal to the greater of: (i) CZK 10,000, or (ii) the total amounts
+paid by the User for the Service during the 12 months preceding the
+event giving rise to the harm. Upon payment of this amount, the User's
+claims for compensation of harm arising from the same event are
+extinguished. This limitation does not apply to harm for which the law
+does not permit limitation of compensation (in particular harm caused
+intentionally or through gross negligence, and harm to a person's
+natural rights).
+
+### 8. Term and termination
+
+The right to run and operate the Software under Article 2(b) is
+conditional on the existence of the User's active relationship with
+the Service (an active account, trial, or subscription). Upon
+termination of that relationship — cancellation of the account, expiry
+of the trial without transition to a paid plan, termination of the
+subscription, or deletion of the account under the terms of the
+Service — that right ceases, and the User is obliged, without undue
+delay and no later than within 30 days, to stop operating the Software
+and to **remove it from all of the User's devices and servers**. The
+right to view the published source code under Article 2(a) remains
+unaffected.
+
+The rights under this License further cease at the moment of their
+breach by the User. The Provider may also revoke them with 30 days'
+notice by publication in the repository; this does not affect a
+running subscription to the Service under its terms. After the rights
+cease, the removal obligation under the preceding paragraph applies
+accordingly; the provisions of Articles 4, 6, and 7 survive
+termination.
+
+### 9. Governing law and dispute resolution
+
+This License is governed by the law of the Czech Republic.
+
+Disputes with a User who is **not a consumer** shall, to the exclusion
+of the jurisdiction of the ordinary courts, be finally resolved in
+arbitration before the Arbitration Court attached to the Czech Chamber
+of Commerce and the Agricultural Chamber of the Czech Republic under
+its rules, by a single arbitrator appointed in accordance with those
+rules, with the seat of the proceedings in Prague and Czech as the
+language of the proceedings.
+
+Disputes with a User who **is a consumer** shall be resolved by the
+ordinary courts; this is without prejudice to mandatory consumer
+protection provisions of the country of the consumer's habitual
+residence. A consumer is entitled to use out-of-court resolution of
+consumer disputes, for which the competent body is the Czech Trade
+Inspection Authority (www.coi.cz), or the ODR platform operated by the
+European Commission.
+
+### 10. Final provisions
+
+If any provision of this License is invalid or unenforceable, this
+does not affect the validity of the remaining provisions. The Provider
+may publish a new version of the License for future versions of the
+Software; versions already downloaded remain governed by the wording
+in effect at the time of their release.
+
+This License is executed in a Czech language version (file
+`LICENSE-cz`) and an English language version (this file). In the
+event of any discrepancy between the versions, the **Czech version
+prevails**.
+
+Contact for licensing inquiries, support, and exception requests:
+hello@runjet.dev.

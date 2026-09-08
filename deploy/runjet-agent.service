@@ -1,0 +1,62 @@
+[Unit]
+Description=Runjet agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=runjet-agent
+Group=runjet-agent
+
+# Creates /var/lib/runjet-agent owned by the service user with mode 0700.
+# That directory holds the agent's private key, which is the one secret on this
+# host that must never be readable by anyone else.
+StateDirectory=runjet-agent
+StateDirectoryMode=0700
+
+# Holds the scheduler URL, its public key, and — on first start only — the
+# enrollment token. Keep it 0600 and owned by root.
+EnvironmentFile=/etc/runjet-agent/agent.env
+
+# Job commands run as runjet-job, not as this service's user, so the state
+# directory above and the secrets file below stay unreadable from a job. That
+# needs the ability to change uid — but not root: these two capabilities are the
+# whole of what the agent is trusted with, and the bounding set keeps
+# "unprivileged plus two capabilities" from drifting into anything more.
+#
+# Where ambient capabilities are unavailable (systemd < 229, some hardened
+# kernels), set User=root instead and drop both lines. The agent takes the same
+# path either way; only who starts it differs.
+AmbientCapabilities=CAP_SETUID CAP_SETGID
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID
+
+ExecStart=/usr/local/bin/runjet-agent
+
+# An agent that cannot reach its scheduler backs off and retries on its own, so
+# a restart here is for the process dying, not for a network blip.
+Restart=always
+RestartSec=5s
+
+# On sandboxing: there is deliberately very little of it here.
+#
+# Every process this unit starts is a job command, so any restriction added
+# below applies to the jobs as well — ProtectHome would break a backup that
+# reads /home, ReadOnlyPaths would break one that writes a dump, PrivateTmp
+# would hide files a job expects to find. Hardening an agent means deciding
+# what the jobs on this host are allowed to do, which is a decision only the
+# operator can make. Add directives here once you know what your jobs need,
+# rather than starting strict and debugging the fallout.
+#
+# The exception is the account. Jobs run as runjet-job, and that is not
+# tunable per host in the same way: as long as a command runs under the agent's
+# own uid it can read the agent's private key, and no directive here changes
+# that. AGENT_JOB_USER= (empty) opts out, and the agent says so at every start.
+#
+# Jobs are not separated from each other, and that is the model rather than an
+# omission: they all run as runjet-job, so they see each other exactly as two
+# cron jobs of one user always have. Worth knowing only if a job runs code you
+# did not write — an account per job is what that would take, and this is not
+# that.
+
+[Install]
+WantedBy=multi-user.target

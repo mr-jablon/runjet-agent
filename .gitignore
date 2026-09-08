@@ -1,0 +1,15 @@
+# Built binaries. build.sh puts them here; releases carry them instead.
+/dist/
+
+# Local build output. `go build .` names it after the module.
+/runjet-agent
+
+# Go workspace file, when developing against a checkout of the control plane.
+# It belongs to the machine, not to the repository.
+go.work
+go.work.sum
+
+# OS / editor cruft
+.DS_Store
+.idea/
+.vscode/

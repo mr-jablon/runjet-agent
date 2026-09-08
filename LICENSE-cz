@@ -1,0 +1,196 @@
+# Licence Runjet Agent (Source-Available)
+
+## Licenční podmínky Runjet Agent
+
+Copyright © 2026 Tomáš Jablonický, IČO 87666570, fyzická osoba
+podnikající zapsaná v živnostenském rejstříku
+(dále jen **„Poskytovatel"**).
+
+Tyto podmínky (dále jen **„Licence"**) upravují užití softwaru **Runjet
+Agent**, včetně jeho zdrojového kódu zveřejněného v tomto repozitáři a
+oficiálních binárních sestavení distribuovaných Poskytovatelem (dále
+společně jen **„Software"**).
+
+Software **není open source** ve smyslu definice Open Source Initiative.
+Zdrojový kód je zveřejněn za účelem transparentnosti a bezpečnostního
+auditu, nikoli k volnému užití.
+
+### 1. Definice
+
+- **„Služba"** — online služba Runjet provozovaná Poskytovatelem na
+  doméně runjet.dev, ke které se Software připojuje.
+- **„Oficiální sestavení"** — binární podoba Softwaru sestavená a
+  distribuovaná Poskytovatelem (release v tomto repozitáři nebo na
+  runjet.dev).
+- **„Uživatel"** — fyzická nebo právnická osoba užívající Software.
+
+### 2. Co je povoleno
+
+Poskytovatel uděluje Uživateli nevýhradní, nepřevoditelné, bezúplatné a
+odvolatelné oprávnění:
+
+a) **prohlížet a studovat zdrojový kód** Softwaru, **sestavit jej
+   z tohoto zdrojového kódu a spustit jeho testovou sadu**, a to za
+   účelem posouzení jeho funkce a bezpečnosti (audit);
+
+b) **stahovat, instalovat a spouštět Oficiální sestavení Softwaru nebo
+   binární podoby, které si Uživatel sestavil ze zveřejněného zdrojového
+   kódu**, na vlastních zařízeních, a to **výhradně za účelem užívání
+   Služby** v souladu s jejími podmínkami;
+
+c) **citovat krátké úryvky zdrojového kódu** v recenzích, bezpečnostních
+   analýzách a odborných článcích, s uvedením zdroje.
+
+### 3. Co je zakázáno
+
+Bez předchozího výslovného písemného souhlasu Poskytovatele Uživatel
+nesmí zejména:
+
+a) Software nebo jeho části **kopírovat, šířit, pronajímat, půjčovat,
+   sublicencovat nebo jinak zpřístupňovat třetím osobám**, s výjimkou
+   forků repozitáře v rámci platformy GitHub v rozsahu, který
+   vyžadují podmínky této platformy — takový fork však nezakládá žádná
+   další práva k Softwaru nad rámec této Licence;
+
+b) Software **měnit, upravovat, překládat do jiných jazyků ani
+   vytvářet odvozená díla**;
+
+c) Software nebo jeho části **užívat v jiných projektech, produktech
+   nebo službách**, vlastních i cizích, komerčních i nekomerčních,
+   ani jej užívat **jinak než ve spojení se Službou**;
+
+d) **šířit binární podoby sestavené ze zdrojového kódu nebo je jinak
+   zpřístupňovat třetím osobám**, ani takovou binární podobu provozovat
+   jinak než ve spojení se Službou. Sestavení ze zveřejněného zdrojového
+   kódu pro vlastní potřebu Uživatele je dovoleno podle čl. 2 písm. b)
+   a vztahuje se na ně čl. 3 písm. b): sestavit lze zveřejněný zdrojový
+   kód v nezměněné podobě;
+
+e) odstraňovat nebo měnit označení autorství, licenční ujednání nebo
+   jiná upozornění obsažená v Softwaru.
+
+### 4. Duševní vlastnictví
+
+Veškerá práva k Softwaru, která nejsou touto Licencí výslovně udělena,
+zůstávají Poskytovateli. Uživatel nenabývá k Softwaru žádná vlastnická
+práva. Názvy „Runjet", loga a další označení jsou označeními
+Poskytovatele a tato Licence k nim neuděluje žádná práva.
+
+### 5. Komponenty třetích stran
+
+Software obsahuje komponenty třetích stran šířené pod vlastními
+licencemi — dnes jedinou, standardní knihovnu Go pod licencí BSD se
+třemi doložkami a s dodatečným udělením patentových práv, kterou
+statické sestavení nese uvnitř binárky, nikoli vedle ní. Jejich seznam
+a znění licencí jsou uvedeny v souboru `THIRD-PARTY-NOTICES.md` v kořeni
+repozitáře. Tato Licence se na tyto komponenty nevztahuje; jejich užití
+se řídí jejich vlastními licencemi.
+
+### 6. Vyloučení záruk a odpovědnost Uživatele za nasazení
+
+Software se poskytuje **„tak, jak je" („AS IS")**, bez jakýchkoli záruk,
+výslovných či mlčky předpokládaných, zejména bez záruky funkčnosti,
+vhodnosti pro určitý účel, nepřetržitého či bezchybného provozu,
+bezpečnosti a slučitelnosti s prostředím Uživatele. Poskytovatel
+nezaručuje, že Software neobsahuje chyby nebo zranitelnosti.
+
+Software spouští úlohy definované Uživatelem pod odděleným systémovým
+účtem, který tyto úlohy drží dál od jeho vlastního soukromého klíče
+a souboru se secrets. **Jde o hranici, nikoli o sandbox.** Není to
+záruka, že úloha nemůže ovlivnit hostitele, na kterém běží: úloha má
+shell a veškerá oprávnění účtu, pod kterým běží.
+
+Uživatel instaluje a provozuje Software **výhradně na vlastní
+odpovědnost a riziko** a je zejména povinen:
+
+a) provést instalaci a konfiguraci v souladu s dokumentací;
+
+b) provozovat Software pod účtem s nejnižšími oprávněními nezbytnými
+   pro vykonávané úlohy a zabezpečit prostředí, ve kterém Software
+   běží (server, síť, přístupy, zálohy);
+
+c) instalovat bez zbytečného odkladu aktualizace Softwaru zveřejněné
+   Poskytovatelem;
+
+d) sám odpovídat za obsah, oprávněnost a důsledky **příkazů a skriptů,
+   které prostřednictvím Softwaru naplánuje a spouští** — Software je
+   pouze vykonává.
+
+Poskytovatel neodpovídá za újmu vzniklou v důsledku porušení
+povinností dle tohoto článku, nesprávné instalace či konfigurace,
+provozu Softwaru v nezabezpečeném prostředí, neprovedení dostupných
+aktualizací, obsahu a účinků úloh definovaných Uživatelem, ani
+v důsledku **neoprávněného zásahu třetí osoby** (útok, zneužití
+zranitelnosti, kompromitace prostředí Uživatele).
+
+### 7. Omezení odpovědnosti
+
+V rozsahu, v jakém to umožňují kogentní ustanovení rozhodného práva,
+Poskytovatel neodpovídá za žádnou škodu vzniklou v souvislosti
+s instalací, provozem nebo nemožností provozu Softwaru, zejména za
+ušlý zisk, ztrátu dat, přerušení provozu nebo následné škody, a to bez
+ohledu na právní důvod. Tím nejsou dotčena práva, která nelze podle
+rozhodného práva vyloučit ani omezit (zejména odpovědnost za újmu
+způsobenou úmyslně nebo z hrubé nedbalosti a práva spotřebitelů
+z kogentních ustanovení).
+
+Ve vztazích s Uživatelem, který není spotřebitelem, je úhrnná
+povinnost Poskytovatele k náhradě veškeré újmy vzniklé v souvislosti
+se Softwarem a Službou omezena částkou rovnající se vyšší z hodnot:
+(i) 10 000 Kč, nebo (ii) souhrnu částek zaplacených Uživatelem za
+Službu za posledních 12 měsíců před vznikem škodné události.
+Uhrazením této částky nároky Uživatele na náhradu újmy z téže škodné
+události zanikají. Toto omezení se nevztahuje na újmu, u níž zákon
+omezení náhrady nepřipouští (zejména újma způsobená úmyslně nebo
+z hrubé nedbalosti a újma na přirozených právech člověka).
+
+### 8. Trvání a ukončení
+
+Oprávnění spouštět a provozovat Software dle čl. 2 písm. b) je vázáno
+na trvání aktivního vztahu Uživatele ke Službě (aktivní účet, trial
+nebo předplatné). Ukončením tohoto vztahu — zrušením účtu, uplynutím
+trialu bez přechodu na placený plán, ukončením předplatného nebo
+smazáním účtu dle podmínek Služby — toto oprávnění zaniká a Uživatel
+je povinen bez zbytečného odkladu, nejpozději do 30 dnů, ukončit
+provoz Softwaru a **odstranit jej ze všech svých zařízení a serverů**.
+Oprávnění prohlížet zveřejněný zdrojový kód dle čl. 2 písm. a) tím
+není dotčeno.
+
+Oprávnění podle této Licence dále zanikají okamžikem jejich porušení
+Uživatelem. Poskytovatel je také může odvolat s 30denní výpovědní
+lhůtou zveřejněním v repozitáři; to nemá vliv na běžící předplatné
+Služby dle jejích podmínek. Po zániku oprávnění platí povinnost
+odstranění dle předchozího odstavce obdobně; ustanovení čl. 4, 6 a 7
+trvají i po zániku.
+
+### 9. Rozhodné právo a řešení sporů
+
+Tato Licence se řídí právem České republiky.
+
+Spory s Uživatelem, který **není spotřebitelem**, budou s vyloučením
+pravomoci obecných soudů rozhodovány s konečnou platností
+v rozhodčím řízení u Rozhodčího soudu při Hospodářské komoře České
+republiky a Agrární komoře České republiky podle jeho řádu, jedním
+rozhodcem jmenovaným podle řádu, s místem řízení v Praze a jednacím
+jazykem českým.
+
+Spory s Uživatelem, který **je spotřebitelem**, rozhodují obecné
+soudy; tím nejsou dotčena kogentní ustanovení na ochranu spotřebitele
+v zemi jeho obvyklého bydliště. Spotřebitel je oprávněn využít
+mimosoudního řešení spotřebitelských sporů, k němuž je příslušná
+Česká obchodní inspekce (www.coi.cz), případně platformu ODR
+provozovanou Evropskou komisí.
+
+### 10. Závěrečná ustanovení
+
+Je-li některé ustanovení této Licence neplatné nebo nevymahatelné,
+nemá to vliv na platnost ostatních ustanovení. Poskytovatel může
+zveřejnit novou verzi Licence pro budoucí verze Softwaru; na již
+stažené verze se vztahuje znění platné v době jejich vydání.
+
+Tato Licence je vyhotovena v českém znění (tento soubor) a anglickém
+znění (soubor `LICENSE`). V případě rozporu mezi zněními má přednost
+**české znění**.
+
+Kontakt pro licenční dotazy, podporu a žádosti o výjimku:
+hello@runjet.dev.

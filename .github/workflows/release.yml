@@ -1,0 +1,151 @@
+# Cutting a release: push a `v*` tag, get static binaries.
+#
+#   git tag -a v1.2.3 -m "..." && git push origin v1.2.3
+#
+# The agent is versioned separately from the control plane on purpose: they are
+# upgraded by different people, on different days. Tying the two together would
+# mean every backend release asking a customer to reinstall something, and every
+# agent fix waiting for one.
+#
+# GitHub cannot filter a tag trigger by branch, so "released from main" is
+# enforced below as a job rather than assumed here.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: The tag must sit on main
+        run: |
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_REF_NAME points at $GITHUB_SHA, which is not on main."
+            echo "::error::Merge it first, then tag the commit on main."
+            exit 1
+          fi
+
+  # Nothing here needs a database: the agent has never held one.
+  test:
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # go.mod having no `require` block is a property, not a coincidence: this
+      # binary is copied onto machines nobody at Runjet can reach, and every
+      # dependency is one more thing an operator has to trust and one more
+      # reason for it to stop building on an older toolchain. Adding one is a
+      # decision, and a decision should not be able to arrive unnoticed.
+      - name: Nothing outside the standard library
+        run: |
+          external="$(go list -deps ./... \
+            | grep -E '^[^/]*\.[^/]*/' \
+            | grep -v '^github.com/mr-jablon/runjet-agent' || true)"
+          if [ -n "$external" ]; then
+            echo "::error::the agent grew a dependency: $external"
+            exit 1
+          fi
+
+      - name: Static checks
+        run: |
+          go vet ./...
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt would rewrite: $unformatted"
+            exit 1
+          fi
+
+      # -race first, as the unprivileged user. The agent's whole shape is
+      # goroutines sharing a run's state — the streamer, the slot counter, the
+      # inflight table — and a race there loses somebody's output or their
+      # verdict rather than crashing.
+      - name: Suite, with the race detector
+        run: go test -race ./... -count=1
+
+      # The only check on the property the agent's whole isolation is layered
+      # on, and this workflow ships that agent. sudo rather than a container:
+      # a runner is already the Linux host these tests need, and `command -v`
+      # because root's PATH is not the one setup-go arranged.
+      - name: Isolation, as root
+        run: sudo "$(command -v go)" test ./... -count=1
+
+  binaries:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Passed rather than derived: the script falls back to `git describe`, and
+      # a shallow checkout would quietly make that "dev". The tag is the version
+      # — this module is at the root, so there is no prefix to strip.
+      - name: Build for every platform an agent runs on
+        run: ./build.sh "${{ github.ref_name }}"
+
+      # These land on hosts one at a time, over whatever connection is to hand.
+      # A checksum file is the only way the person doing it can tell they got
+      # the file this workflow built.
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum runjet-agent-* > SHA256SUMS
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+          NOTES: |
+            The agent for machines that run your jobs. It is not an image and
+            not a service you sign up for — one static binary, no runtime to
+            install, no libc version to match.
+
+            Take the binary for that host, check it against `SHA256SUMS`, and
+            install it:
+
+                install -m 0755 runjet-agent-linux-amd64 /usr/local/bin/runjet-agent
+
+            `deploy/` has the systemd unit and its environment file.
+
+            ## Upgrading
+
+            Replace the binary and restart the service. The agent keeps its
+            identity and its key in `/var/lib/runjet-agent`, so it does not
+            re-enrol and its one-time token stays spent.
+
+            ## Which server this works with
+
+            Any inside the protocol window it serves. The agent is versioned
+            separately from the control plane on purpose: they are upgraded by
+            different people, on different days, and an agent that had to match
+            would mean every backend release stopping every customer's jobs
+            until each of them acted.
+
+            The agent list in Runjet says when an agent is approaching the edge
+            of that window, which is the warning to act on.
+        run: |
+          printf '%s\n' "$NOTES" > notes.md
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Agent $VERSION" \
+            --notes-file notes.md \
+            dist/runjet-agent-* dist/SHA256SUMS

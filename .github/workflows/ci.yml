@@ -1,0 +1,68 @@
+# The suite, on every push and every pull request.
+#
+# Separate from release.yml because in the control plane's repository this
+# module was tested by that repository's own CI; on its own, a release-only
+# workflow would mean nothing runs on a pull request at all.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # go.mod having no `require` block is a property, not a coincidence: this
+      # binary is copied onto machines nobody at Runjet can reach, and every
+      # dependency is one more thing an operator has to trust and one more
+      # reason for it to stop building on an older toolchain. Adding one is a
+      # decision, and a decision should not be able to arrive unnoticed.
+      - name: Nothing outside the standard library
+        run: |
+          external="$(go list -deps ./... \
+            | grep -E '^[^/]*\.[^/]*/' \
+            | grep -v '^github.com/mr-jablon/runjet-agent' || true)"
+          if [ -n "$external" ]; then
+            echo "::error::the agent grew a dependency: $external"
+            exit 1
+          fi
+
+      - name: Static checks
+        run: |
+          go vet ./...
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt would rewrite: $unformatted"
+            exit 1
+          fi
+
+      # -race first, as the unprivileged user. The agent's whole shape is
+      # goroutines sharing a run's state — the streamer, the slot counter, the
+      # inflight table — and a race there loses somebody's output or their
+      # verdict rather than crashing.
+      - name: Suite, with the race detector
+        run: go test -race ./... -count=1
+
+      # Then again as root, because the tests that change uid skip everywhere
+      # else — including as this runner's own user. They are the only check on
+      # the property the agent's whole isolation is layered on: that a job runs
+      # as runjet-job and cannot read the agent's key.
+      #
+      # sudo rather than a container. The agent ships as a binary you drop on a
+      # host, there is no image of it to build, and a runner is already the
+      # Linux host these tests need. `command -v` because root's PATH is not
+      # the one setup-go arranged.
+      - name: Isolation, as root
+        run: sudo "$(command -v go)" test ./... -count=1
